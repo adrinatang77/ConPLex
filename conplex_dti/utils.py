@@ -31,7 +31,7 @@ def config_logger(
     file: T.Union[Path, None],
     fmt: str,
     level: bool = 2,
-    use_stdout: bool = True,
+    use_stdout: bool = False,
 ):
     """
     Create and configure the logger

@@ -50,12 +50,7 @@ def add_args(parser: ArgumentParser):
         help="Weights and Biases Project",
         dest="wandb_proj",
     )
-    log_group.add_argument(
-        "--wandb_save",
-        help="Log to Weights and Biases",
-        dest="wandb_save",
-        action="store_true",
-    )
+
     log_group.add_argument(
         "--log-file",
         help="Log file",
@@ -261,7 +256,7 @@ def main(args):
         config.log_file,
         "%(asctime)s [%(levelname)s] %(message)s",
         config.verbosity,
-        use_stdout=True,
+        use_stdout=False,
     )
 
     # Set CUDA device
@@ -273,6 +268,21 @@ def main(args):
     # Set random state
     logg.debug(f"Setting random state {config.replicate}")
     set_random_seed(config.replicate)
+
+    # Initialize wandb
+    do_wandb = config.wandb_save and ("wandb_proj" in config)
+    if do_wandb:
+        logg.info(f"Initializing wandb project {config.wandb_proj}")
+        wandb.init(
+            project=config.wandb_proj,
+            name=config.run_id,
+            config=dict(config),
+            entity=config.wandb_entity
+        )
+
+    # Dump Configs
+    logg.info("Config:")
+    logg.info(json.dumps(dict(config), indent=4))
 
     # Load DataModule
     logg.info("Preparing DataModule")
@@ -324,6 +334,7 @@ def main(args):
         )
     datamodule.prepare_data()
     datamodule.setup()
+
 
     # Load DataLoaders
     logg.info("Getting DataLoaders")
@@ -427,18 +438,8 @@ def main(args):
             "test/auroc": torchmetrics.AUROC,
         }
 
-    # Initialize wandb
-    do_wandb = config.wandb_save and ("wandb_proj" in config)
     if do_wandb:
-        logg.info(f"Initializing wandb project {config.wandb_proj}")
-        wandb.init(
-            project=config.wandb_proj,
-            name=config.run_id,
-            config=dict(config),
-        )
         wandb.watch(model, log_freq=100)
-    logg.info("Config:")
-    logg.info(json.dumps(dict(config), indent=4))
 
     logg.info("Beginning Training")
 
