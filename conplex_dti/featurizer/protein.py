@@ -238,6 +238,80 @@ class ProtT5XLUniref50Featurizer(Featurizer):
 
         return seq_emb.mean(0)
 
+class ProstT5Featurizer(Featurizer):
+    def __init__(self, save_dir: Path = Path().absolute(), ):
+        super().__init__("ProstT5", 1024, save_dir)
+        
+        self._max_len = 1024
+
+        (
+            self._protbert_model,
+            self._protbert_tokenizer,
+        ) = ProstT5Featurizer._get_T5_model()
+
+        self._register_cuda("model", self._protbert_model)
+    
+    def _get_T5_model():
+        from transformers import T5Tokenizer, T5EncoderModel
+
+        model = T5EncoderModel.from_pretrained(
+            "Rostlab/ProstT5",
+            cache_dir=f"{MODEL_CACHE_DIR}/huggingface/transformers",
+        )
+        model.eval()
+
+        tokenizer = T5Tokenizer.from_pretrained(
+            'Rostlab/ProstT5',
+            do_lower_case=False,
+            cache_dir=f"{MODEL_CACHE_DIR}/huggingface/transformers",
+        )
+        return model, tokenizer
+    
+    def _space_sequence(x):
+        return " ".join(list(x))
+    
+    def _prefix_sequence(x, aa2fold=True):
+        if x.isupper():
+            return "<AA2fold>" + " " + x
+        else:
+            return "<fold2AA>" + " " + x
+    
+    def _prep_sequence(x):
+        return ProstT5Featurizer._prefix_sequence(ProstT5Featurizer._space_sequence(x))
+
+    def _transform(self, seq: str):
+        # why max = 1024? vec out = 1024?
+        if len(seq) > self._max_len - 2:
+            seq = seq[: self._max_len - 2]
+
+        token_encoding = self._protbert_tokenizer.batch_encode_plus(
+            ProstT5Featurizer._prep_sequence(seq),
+            add_special_tokens=True,
+            padding="longest",
+            return_tensors='pt',
+        )
+
+        # changed from prott5uniref50
+        input_ids = token_encoding.input_ids
+        attention_mask = token_encoding.attention_mask
+
+        input_ids = input_ids.to(self.device)
+        attention_mask = attention_mask.to(self.device)
+
+        with torch.no_grad():
+            embedding = self._cuda_registry["model"][0](
+                input_ids=input_ids, attention_mask=attention_mask
+            )
+            embedding = embedding.last_hidden_state
+            seq_len = len(seq)
+            start_Idx = 1
+            end_Idx = seq_len + 1
+            # why??
+            seq_emb = embedding[0][start_Idx:end_Idx]
+
+        # derive single representation 
+        return seq_emb.mean(0)
+
 
 class CNN2Layers(torch.nn.Module):
     def __init__(

@@ -47,6 +47,7 @@ def get_task_dir(task_name: str, database_root: Path):
         "esterase": database_root / "EnzPred/esterase_binary",
         "kinase": database_root / "EnzPred/davis_filtered",
         "phosphatase": database_root / "EnzPred/phosphatase_chiral_binary",
+        "lit-pcba": database_root / "LIT-PCBA",
     }
 
     return Path(task_paths[task_name.lower()]).resolve()
@@ -737,3 +738,129 @@ class DUDEDataModule(pl.LightningDataModule):
 #         return DataLoader(self.data_test,
 #                          **self._loader_kwargs
 #                          )
+
+class LIT_PCBADataModule(pl.LightningDataModule):
+    def __init__(self,
+        task_dir: str,
+        contrastive_split: str,
+        drug_featurizer: Featurizer,
+        target_featurizer: Featurizer,
+        device: torch.device = torch.device("cpu"),
+        n_neg_per: int = 50,
+        batch_size: int = 32,
+        shuffle: bool = True,
+        num_workers: int = 0,
+        header=0,
+        index_col=None,
+        sep=",",):
+
+        self._loader_kwargs = {
+            "batch_size": batch_size,
+            "shuffle": shuffle,
+            "num_workers": num_workers,
+            "collate_fn": contrastive_collate_fn,
+        }
+
+        self._csv_kwargs = {
+            "header": header,
+            "index_col": index_col,
+            "sep": sep,
+        }
+
+        self._device = device
+        self._n_neg_per = n_neg_per
+
+        self._data_dir = task_dir
+        self._split = contrastive_split
+        self._split_path = self._data_dir / Path(
+            f"lit-pcba_type_train_test_split.csv"
+        )
+
+        self._drug_column = "SMILES"
+        self._target_column = "Target_Seq"
+        self._label_column = "Label"
+
+        self.drug_featurizer = drug_featurizer
+        self.target_featurizer = target_featurizer
+    
+    def setup(self, stage: T.Optional[str] = None):
+
+        self.df_splits = pd.read_csv(self._split_path, header=None)
+        self._train_list = self.df_splits[self.df_splits[1] == "train"][0].values
+        self._test_list = self.df_splits[self.df_splits[1] == "test"][0].values
+        
+        # Initialize train adn test dataframes
+        self.df_train = pd.DataFrame()
+        self.df_test = pd.DataFrame()
+
+        # Iterate over each gene in the training and test list
+        for gene in self._train_list:
+            gene_folder_path = self._data_dir / Path(gene)
+
+            if os.path.exists(gene_folder_path):
+                full_csv_path = gene_folder_path / Path('full.csv')
+                if os.path.exists(full_csv_path):
+                    df_gene = pd.read_csv(full_csv_path)
+                    self.df_train = pd.concat([self.df_train, df_gene], ignore_index=True)
+                else:
+                    print(f"Full CSV file for gene {gene} not found.")
+            else:
+                print(f"Folder for gene {gene} not found.")
+        
+        for gene in self._test_list:
+            gene_folder_path = self._data_dir / Path(gene)
+
+            if os.path.exists(gene_folder_path):
+                full_csv_path = gene_folder_path / Path('full.csv')
+                if os.path.exists(full_csv_path):
+                    df_gene = pd.read_csv(full_csv_path)
+                    self.df_test = pd.concat([self.df_test, df_gene], ignore_index=True)
+                else:
+                    print(f"Full CSV file for gene {gene} not found.")
+            else:
+                print(f"Folder for gene {gene} not found.")
+
+        self.train_contrastive = make_contrastive(
+            self.df_train,
+            self._drug_column,
+            self._target_column,
+            self._label_column,
+            self._n_neg_per,
+        )
+
+        self._dataframes = [self.df_train]  # , self.df_test]
+
+        all_drugs = pd.concat([i[self._drug_column] for i in self._dataframes]).unique()
+        all_targets = pd.concat(
+            [i[self._target_column] for i in self._dataframes]
+        ).unique()
+
+        if self._device.type == "cuda":
+            self.drug_featurizer.cuda(self._device)
+            self.target_featurizer.cuda(self._device)
+
+        self.drug_featurizer.preload(all_drugs, write_first=True)
+        self.drug_featurizer.cpu()
+
+        self.target_featurizer.preload(all_targets, write_first=True)
+        self.target_featurizer.cpu()
+
+        if stage == "fit" or stage is None:
+            self.data_train = ContrastiveDataset(
+                self.train_contrastive["Anchor"],
+                self.train_contrastive["Positive"],
+                self.train_contrastive["Negative"],
+                self.drug_featurizer,
+                self.target_featurizer,
+            )
+
+        # if stage == "test" or stage is None:
+        #     self.data_test = BinaryDataset(self.df_test[self._drug_column],
+        #                                     self.df_test[self._target_column],
+        #                                     self.df_test[self._label_column],
+        #                                     self.drug_featurizer,
+        #                                     self.target_featurizer
+        #                                    )
+
+    def train_dataloader(self):
+        return DataLoader(self.data_train, **self._loader_kwargs)
