@@ -13,4 +13,5 @@ from .protein import (  # ProseFeaturizer,; DSCRIPTFeaturizer,
     FoldSeekFeaturizer,
     ProtBertFeaturizer,
     ProtT5XLUniref50Featurizer,
+    ProstT5Featurizer
 )
