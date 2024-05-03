@@ -107,22 +107,25 @@ def make_contrastive(
     label_column: str,
     n_neg_per: int = 50,
 ):
-    pos_df = df[df[label_column] == 1]
-    neg_df = df[df[label_column] == 0]
-
     contrastive = []
 
-    for _, r in pos_df.iterrows():
-        for _ in range(n_neg_per):
-            contrastive.append(
-                (
-                    r[anchor_column],
-                    r[posneg_column],
-                    choice(neg_df[posneg_column]),
-                )
-            )
+    for anchor_value in df[anchor_column].unique():
+        anchor_df = df[df[anchor_column] == anchor_value]
+        pos_df = anchor_df[anchor_df[label_column] == 1]
+        neg_df = anchor_df[anchor_df[label_column] == 0]
 
-    contrastive = pd.DataFrame(contrastive, columns=["Anchor", "Positive", "Negative"])
+        for _, r in pos_df.iterrows():
+            for _ in range(n_neg_per):
+                contrastive.append(
+                    (
+                        r[anchor_column],
+                        r[posneg_column],
+                        choice(neg_df[posneg_column]),
+                    )
+                )
+
+        contrastive = pd.DataFrame(contrastive, columns=["Anchor", "Positive", "Negative"])
+    
     return contrastive
 
 
@@ -803,9 +806,9 @@ class LIT_PCBADataModule(pl.LightningDataModule):
                     df_gene = pd.read_csv(full_csv_path)
                     self.df_train = pd.concat([self.df_train, df_gene], ignore_index=True)
                 else:
-                    print(f"Full CSV file for gene {gene} not found.")
+                    logg.warning(f"Full CSV file for gene {gene} not found.")
             else:
-                print(f"Folder for gene {gene} not found.")
+                logg.warning(f"Folder for gene {gene} not found.")
         
         for gene in self._test_list:
             gene_folder_path = self._data_dir / Path(gene)
@@ -816,9 +819,9 @@ class LIT_PCBADataModule(pl.LightningDataModule):
                     df_gene = pd.read_csv(full_csv_path)
                     self.df_test = pd.concat([self.df_test, df_gene], ignore_index=True)
                 else:
-                    print(f"Full CSV file for gene {gene} not found.")
+                    logg.warning(f"Full CSV file for gene {gene} not found.")
             else:
-                print(f"Folder for gene {gene} not found.")
+                logg.warning(f"Folder for gene {gene} not found.")
 
         self.train_contrastive = make_contrastive(
             self.df_train,
@@ -853,6 +856,7 @@ class LIT_PCBADataModule(pl.LightningDataModule):
                 self.drug_featurizer,
                 self.target_featurizer,
             )
+
 
         # if stage == "test" or stage is None:
         #     self.data_test = BinaryDataset(self.df_test[self._drug_column],
