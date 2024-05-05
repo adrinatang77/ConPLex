@@ -20,10 +20,12 @@ from tqdm.auto import tqdm
 
 from ..dataset import (
     DTIDataModule,
-    DUDEDataModule,
+    # LIT_PCBADataModule,
+    # DUDEDataModule,
     EnzPredDataModule,
     TDCDataModule,
     get_task_dir,
+    get_contrastive_datamodule,
 )
 from ..featurizer import get_featurizer
 from ..model import architectures as model_types
@@ -104,6 +106,14 @@ def add_args(parser: ArgumentParser):
         help="Contrastive split",
         dest="contrastive_split",
         choices=["within", "between"],
+    )
+
+    task_group.add_argument(
+        "--contrastive-dataset",
+        type=str,
+        help="Contrastive dataset",
+        dest="contrastive_dataset",
+        choices=["dude", "lit-pcba"],
     )
 
     # Model and Featurizers
@@ -343,22 +353,22 @@ def main(args):
     testing_generator = datamodule.test_dataloader()
 
     if config.contrastive:
-        logg.info("Loading contrastive data (DUDE)")
-        dude_drug_featurizer = get_featurizer(
+        logg.info(f"Loading contrastive data ({config.contrastive_dataset})")
+        contrastive_drug_featurizer = get_featurizer(
             config.drug_featurizer,
-            save_dir=get_task_dir("DUDe", database_root=config.data_cache_dir),
+            save_dir=get_task_dir(config.contrastive_dataset, database_root=config.data_cache_dir),
         )
 
-        dude_target_featurizer = get_featurizer(
+        contrastive_target_featurizer = get_featurizer(
             config.target_featurizer,
-            save_dir=get_task_dir("DUDe", database_root=config.data_cache_dir),
+            save_dir=get_task_dir(config.contrastive_dataset, database_root=config.data_cache_dir),
         )
 
-        contrastive_datamodule = DUDEDataModule(
-            get_task_dir("DUDe", database_root=config.data_cache_dir),
+        contrastive_datamodule = (get_contrastive_datamodule(config.contrastive_dataset))(
+            get_task_dir(config.contrastive_dataset, database_root=config.data_cache_dir),
             config.contrastive_split,
-            dude_drug_featurizer,
-            dude_target_featurizer,
+            contrastive_drug_featurizer,
+            contrastive_target_featurizer,
             device=device,
             batch_size=config.contrastive_batch_size,
             shuffle=config.shuffle,

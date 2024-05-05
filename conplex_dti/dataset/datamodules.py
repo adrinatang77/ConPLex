@@ -52,6 +52,11 @@ def get_task_dir(task_name: str, database_root: Path):
 
     return Path(task_paths[task_name.lower()]).resolve()
 
+def get_contrastive_datamodule(datamodule_str):
+    from .. import dataset as datamodules
+    
+    return getattr(datamodules, datamodule_str)
+
 
 def drug_target_collate_fn(args: T.Tuple[torch.Tensor, torch.Tensor, torch.Tensor]):
     """
